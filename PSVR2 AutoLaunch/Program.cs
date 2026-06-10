@@ -1,4 +1,5 @@
-﻿using PSVR2_AutoLaunch;
+﻿using Microsoft.Toolkit.Uwp.Notifications;
+using PSVR2_AutoLaunch;
 using PSVR2_AutoLaunch.Properties;
 using System;
 using System.Diagnostics;
@@ -14,6 +15,12 @@ static class Program
     [STAThread]
     static void Main()
     {
+        // Clicking one of our toasts re-launches this exe with a toast-activation
+        // argument. The real instance is already running; exit quietly instead of
+        // showing the "already running" box.
+        if (ToastNotificationManagerCompat.WasCurrentProcessToastActivated())
+            return;
+
         using (Mutex mutex = new Mutex(true, MutexName, out bool isNewInstance))
         {
             if (!isNewInstance)

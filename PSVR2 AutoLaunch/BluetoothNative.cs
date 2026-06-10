@@ -157,6 +157,40 @@ namespace PSVR2_AutoLaunch
         [DllImport(BthDll)]
         public static extern uint BluetoothRemoveDevice(ref BLUETOOTH_ADDRESS pAddress);
 
+        [DllImport(BthDll)]
+        public static extern uint BluetoothGetDeviceInfo(IntPtr hRadio, ref BLUETOOTH_DEVICE_INFO pbtdi);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool CloseHandle(IntPtr hObject);
+
+        // Fresh, point-in-time query of a single device's state (fConnected,
+        // fAuthenticated, ...) straight from the radio - unlike EnumerateDevices,
+        // which reports state as of the (possibly seconds-old) inquiry snapshot.
+        public static bool TryGetDeviceInfo(BLUETOOTH_ADDRESS address, out BLUETOOTH_DEVICE_INFO info)
+        {
+            info = new BLUETOOTH_DEVICE_INFO
+            {
+                dwSize = (uint)Marshal.SizeOf(typeof(BLUETOOTH_DEVICE_INFO)),
+                Address = address,
+            };
+            var findParams = new BLUETOOTH_FIND_RADIO_PARAMS
+            {
+                dwSize = (uint)Marshal.SizeOf(typeof(BLUETOOTH_FIND_RADIO_PARAMS)),
+            };
+            IntPtr hFind = BluetoothFindFirstRadio(ref findParams, out IntPtr hRadio);
+            if (hFind == IntPtr.Zero) return false;
+            try
+            {
+                return BluetoothGetDeviceInfo(hRadio, ref info) == 0;
+            }
+            finally
+            {
+                CloseHandle(hRadio);
+                BluetoothFindRadioClose(hFind);
+            }
+        }
+
         [DllImport(BthDll, CharSet = CharSet.Unicode)]
         public static extern uint BluetoothAuthenticateDeviceEx(
             IntPtr hwndParentIn,
@@ -164,6 +198,24 @@ namespace PSVR2_AutoLaunch
             ref BLUETOOTH_DEVICE_INFO pbtdiInout,
             IntPtr pbtOobData,
             uint authenticationRequirement);
+
+        // SYSTEMTIME as filled in by the BT stack (e.g. stLastSeen). Returned with
+        // Kind=Unspecified: whether the stack stamps UTC or local time is not
+        // documented, so callers should compare these values against each other,
+        // not against wall-clock time. Zeroed struct (never seen) => DateTime.MinValue.
+        public static DateTime SystemTimeToDateTime(SYSTEMTIME st)
+        {
+            if (st.wYear == 0) return DateTime.MinValue;
+            try
+            {
+                return new DateTime(st.wYear, st.wMonth, st.wDay,
+                    st.wHour, st.wMinute, st.wSecond, st.wMilliseconds, DateTimeKind.Unspecified);
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                return DateTime.MinValue;
+            }
+        }
 
         public static string AddressToString(BLUETOOTH_ADDRESS addr)
         {
